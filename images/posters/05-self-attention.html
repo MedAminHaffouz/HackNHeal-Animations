@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Self-Attention — HackNHeal</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<script src="../assets/vendor/d3.v7.9.0.min.js"></script>
+<script src="../lib/poster.js"></script>
+</head>
+<body>
+<script>
+(async () => {
+  const P = await Poster.create({
+    num: '05', id: 'self-attention', title: 'Self-Attention',
+    subtitle: 'One query attends to every key · weights sum to 1',
+    hudTop: 'SINGLE HEAD · d_{k} = 64', hudSub: 'QUERY TOKEN: "mutation"',
+  });
+  const { W, H, C, g, rng, isBg, text } = P;
+
+  const toks = ['[CLS]', 'the', 'BRCA1', 'mutation', 'raises', 'breast', 'cancer', 'risk', '[SEP]'];
+  const qi = 3;
+  const base = [0.5, 0.1, 2.6, 1.7, 0.8, 1.0, 1.9, 1.4, 0.2];
+  const arng = rng.fork('attn');
+  // scaled dot-product scores s_j = q·k_j / √d_k, printed to 2 dp; α is computed from the printed scores
+  const s = base.map((b) => Math.round((b + arng.normal(0, 0.22)) * 100) / 100);
+  const alphaExact = Poster.softmax(s);
+  const alpha = Poster.roundToSum(alphaExact, 2);
+  const order = d3.range(toks.length).sort((a, b) => alpha[b] - alpha[a]);
+  const rank = new Map(order.map((j, r) => [j, r]));
+
+  // ---------- geometry ----------
+  const Q = isBg ? [W / 2, 250] : [W / 2, 610];
+  const RX = isBg ? 1660 : 1180, RY = isBg ? 1620 : 960;
+  const a0 = isBg ? 8 : 14, a1 = isBg ? 172 : 166;
+  const keys = toks.map((t, j) => {
+    const ang = (a0 + (a1 - a0) * (1 - j / (toks.length - 1))) * Math.PI / 180;
+    return { t, j, ang, x: Q[0] + RX * Math.cos(ang), y: Q[1] + RY * Math.sin(ang), a: alpha[j], s: s[j] };
+  });
+
+  // ---------- attention lines ----------
+  const lines = g.append('g').attr('fill', 'none').attr('stroke-linecap', 'round');
+  const glowLines = g.append('g').attr('fill', 'none').attr('stroke-linecap', 'round').attr('filter', 'url(#glow-m)');
+  const qBottom = [Q[0], Q[1] + 62];
+  const curve = (k) => {
+    const ex = k.x - Math.cos(k.ang) * 70, ey = k.y - Math.sin(k.ang) * 54;
+    const cx = Q[0] + (ex - Q[0]) * 0.25, cy = qBottom[1] + (ey - qBottom[1]) * 0.75;
+    return `M${qBottom[0]} ${qBottom[1]}Q${cx} ${cy} ${ex} ${ey}`;
+  };
+  for (const k of keys.slice().sort((p, q) => p.a - q.a)) {
+    const strong = rank.get(k.j) < 3;
+    const tgt = strong ? glowLines : lines;
+    tgt.append('path').attr('d', curve(k))
+      .attr('stroke', strong ? C.cyan : C.white)
+      .attr('stroke-opacity', strong ? 0.95 : 0.25 + k.a * 2)
+      .attr('stroke-width', 3 + 80 * k.a);
+    if (strong) lines.append('path').attr('d', curve(k)).attr('stroke', '#e8fdff').attr('stroke-width', Math.max(2, 16 * k.a)).attr('stroke-opacity', 0.9);
+  }
+
+  // ---------- tokens ----------
+  const pills = g.append('g');
+  const pill = (x, y, label, o) => {
+    const fs = o.size || 44;
+    const t = text(pills, x, y + fs * 0.35, label, { size: fs, anchor: 'middle', weight: 700, fill: o.fill || C.white });
+    const b = t.node().getBBox();
+    const pw = Math.max(b.width + 64, o.minW || 0), ph = fs + 44;
+    const grp = o.glow ? g.insert('g', () => pills.node()).attr('filter', 'url(#glow-s)') : g.insert('g', () => pills.node());
+    grp.append('rect').attr('x', x - pw / 2).attr('y', y - ph / 2).attr('width', pw).attr('height', ph).attr('rx', ph / 2)
+      .attr('fill', o.bg || C.bg).attr('fill-opacity', o.bgOp ?? 0.9)
+      .attr('stroke', o.stroke || C.white).attr('stroke-width', o.sw || 3).attr('stroke-opacity', o.so ?? 0.8);
+    return { w: pw, h: ph };
+  };
+  pill(Q[0], Q[1], toks[qi], { size: 56, fill: '#05070d', bg: C.cyan, bgOp: 1, stroke: C.cyan, glow: true, sw: 4 });
+  for (const k of keys) {
+    const strong = rank.get(k.j) < 3;
+    const self = k.j === qi;
+    k.pill = pill(k.x, k.y, k.t, {
+      size: 42, stroke: strong ? C.cyan : self ? C.amber : C.white, so: strong ? 1 : 0.6,
+      fill: strong ? C.cyan : self ? C.amber : C.white, glow: strong,
+    });
+  }
+
+  // weights printed radially outside each key
+  const wl = g.append('g');
+  for (const k of keys) {
+    const strong = rank.get(k.j) < 3;
+    // place below the pill, centred, so the column of numbers reads like a table along the arc
+    const lx = k.x, ly = k.y + k.pill.h / 2 + 64;
+    text(wl, lx, ly, k.a.toFixed(2), { size: strong ? 56 : 44, anchor: 'middle', weight: 700, fill: strong ? C.cyan : C.white, opacity: strong ? 1 : 0.75, filter: strong ? 'glow-s' : null });
+    if (!isBg) text(wl, lx, ly + 44, `s=${k.s.toFixed(2)}`, { size: 28, anchor: 'middle', opacity: 0.5 });
+  }
+
+  if (isBg) { P.done(); return; }
+
+  // ---------- query annotation ----------
+  text(g, Q[0] + 210, Q[1] - 6, 'QUERY', { size: 30, fill: C.cyan, spacing: 4, weight: 500 });
+  text(g, Q[0] + 210, Q[1] + 36, 'q = x_{mutation} W^{Q}', { size: 32, opacity: 0.8 });
+  text(g, Q[0] - 210, Q[1] - 6, 'KEYS', { size: 30, fill: C.white, opacity: 0.7, spacing: 4, weight: 500, anchor: 'end' });
+  text(g, Q[0] - 210, Q[1] + 36, 'k_{j} = x_{j} W^{K}', { size: 32, opacity: 0.8, anchor: 'end' });
+
+  // ---------- formula panel (lower left) ----------
+  const fx = 170, fy = 1650;
+  const fg = g.append('g');
+  fg.append('path').attr('d', `M${fx - 20} ${fy - 44}h44M${fx - 20} ${fy - 44}v44`).attr('stroke', C.cyan).attr('stroke-width', 3).attr('fill', 'none');
+  text(fg, fx, fy, 'ATTENTION WEIGHTS', { size: 28, fill: C.cyan, spacing: 3, weight: 500 });
+  text(fg, fx, fy + 74, 's_{j} = q · k_{j} / √d_{k}', { size: 44, weight: 700 });
+  text(fg, fx, fy + 150, 'α_{j} = exp(s_{j}) / Σ_{i} exp(s_{i})', { size: 44, weight: 700 });
+  const sum = alpha.reduce((p, q) => p + q, 0);
+  text(fg, fx, fy + 236, `Σ_{j} α_{j} = ${alpha.map((v) => v.toFixed(2)).join(' + ')} = ${sum.toFixed(2)}`, { size: 28, fill: C.amber });
+
+  // ---------- output panel (lower right) ----------
+  const ox = 2700, oy = 1650;
+  const og = g.append('g');
+  og.append('path').attr('d', `M${ox - 20} ${oy - 44}h44M${ox - 20} ${oy - 44}v44`).attr('stroke', C.cyan).attr('stroke-width', 3).attr('fill', 'none');
+  text(og, ox, oy, 'OUTPUT FOR "mutation"', { size: 28, fill: C.cyan, spacing: 3, weight: 500 });
+  text(og, ox, oy + 74, 'z = Σ_{j} α_{j} v_{j},  v_{j} = x_{j} W^{V}', { size: 44, weight: 700 });
+  const top3 = order.slice(0, 3);
+  const rest = 1 - top3.reduce((p, j) => p + alpha[j], 0);
+  text(og, ox, oy + 150, top3.map((j) => `${alpha[j].toFixed(2)}·v_{${toks[j]}}`).join(' + ') + ` + …`, { size: 34, fill: C.white, opacity: 0.85 });
+  text(og, ox, oy + 210, `top-3 keys carry ${(100 * (1 - rest)).toFixed(0)}% of the weight`, { size: 28, opacity: 0.55 });
+
+  P.done();
+})();
+</script>
+</body>
+</html>

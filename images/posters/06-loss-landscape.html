@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Loss Landscape — HackNHeal</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<script src="../assets/vendor/d3.v7.9.0.min.js"></script>
+<script src="../lib/poster.js"></script>
+</head>
+<body>
+<script>
+(async () => {
+  const P = await Poster.create({
+    num: '06', id: 'loss-landscape', title: 'Gradient Descent',
+    subtitle: 'Loss landscape · SGD with momentum finds the minimum',
+    hudTop: 'OPTIMISER: HEAVY-BALL MOMENTUM', hudSub: 'FULL-BATCH · 1 STEP = 1 EPOCH',
+  });
+  const { W, H, C, g, rng, isBg, text, defs } = P;
+
+  // ---------------- loss surface L(w1, w2) ----------------
+  const f = (x, y) => {
+    const a = 0.6, u = (x - 0.9) * Math.cos(a) + (y + 0.5) * Math.sin(a), v = -(x - 0.9) * Math.sin(a) + (y + 0.5) * Math.cos(a);
+    return 0.07 * (x * x + y * y) + 1.6
+      - 1.5 * Math.exp(-(u * u / 1.8 + v * v / 0.3))            // global basin: rotated, elongated valley
+      - 0.55 * Math.exp(-((x + 1.7) ** 2 + (y - 1.5) ** 2) / 0.45)  // local minimum
+      + 0.45 * Math.exp(-((x - 1.8) ** 2 + (y - 1.9) ** 2) / 0.7)   // ridge
+      + 0.35 * Math.exp(-((x + 0.6) ** 2 + (y + 2.2) ** 2) / 0.5)
+      + 0.03 * Math.sin(2.2 * x) * Math.cos(1.9 * y);               // small ripples
+  };
+  const grad = (x, y, h = 1e-4) => [(f(x + h, y) - f(x - h, y)) / (2 * h), (f(x, y + h) - f(x, y - h)) / (2 * h)];
+  const D = 3;
+
+  // global minimum by grid search + refinement
+  let best = [0, 0, Infinity];
+  for (let x = -D; x <= D; x += 0.02) for (let y = -D; y <= D; y += 0.02) { const z = f(x, y); if (z < best[2]) best = [x, y, z]; }
+  for (let i = 0; i < 400; i++) { const gr = grad(best[0], best[1]); best = [best[0] - 0.05 * gr[0], best[1] - 0.05 * gr[1]]; best[2] = f(best[0], best[1]); }
+
+  // ---------------- optimiser: heavy-ball momentum ----------------
+  const eta = 0.06, beta = 0.86, EPOCHS = 70;
+  const run = (deg) => {
+    const r = 2.65, t = deg * Math.PI / 180;
+    let p = [r * Math.cos(t), r * Math.sin(t)], v = [0, 0];
+    const tr = [{ p: p.slice(), L: f(...p), e: 0 }];
+    for (let e = 1; e <= EPOCHS; e++) {
+      const gr = grad(...p);
+      v = [beta * v[0] + gr[0], beta * v[1] + gr[1]];
+      p = [p[0] - eta * v[0], p[1] - eta * v[1]];
+      tr.push({ p: p.slice(), L: f(...p), e });
+    }
+    return tr;
+  };
+  // seeded start on a ring; reject starts that end in the local minimum (deterministic retry)
+  const srng = rng.fork('start');
+  let traj;
+  for (let k = 0; k < 20; k++) {
+    traj = run(srng.uniform(195, 285));
+    const end = traj[traj.length - 1].p;
+    if (Math.hypot(end[0] - best[0], end[1] - best[1]) < 0.08) break;
+  }
+
+  // ---------------- projection ----------------
+  const yaw = (isBg ? -40 : -38) * Math.PI / 180, elev = 32 * Math.PI / 180;
+  const S = isBg ? 430 : 245, ZS = 1.15;
+  const CX = isBg ? 2640 : 1560, CY = isBg ? 1240 : 1140; // bg: basin pushed to the lower-right, clear of the centre mask
+  const zMid = 1.4;
+  const proj = (x, y, z) => {
+    const X = x * Math.cos(yaw) - y * Math.sin(yaw);
+    const Yd = x * Math.sin(yaw) + y * Math.cos(yaw);
+    return [CX + S * X, CY + S * (Yd * Math.sin(elev) - (z - zMid) * ZS * Math.cos(elev))];
+  };
+  const depthOf = (x, y) => x * Math.sin(yaw) + y * Math.cos(yaw); // + = toward viewer
+  const zFloor = 0;
+
+  // ---------------- floor: frame + projected contours ----------------
+  const N = 64;
+  const vals = new Array(N * N);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) vals[j * N + i] = f(-D + (2 * D * i) / (N - 1), -D + (2 * D * j) / (N - 1));
+  const toW = (c) => -D + (2 * D * (c - 0.5)) / (N - 1);
+  const levels = d3.range(0.3, 2.9, 0.12);
+  const contours = d3.contours().size([N, N]).thresholds(levels)(vals);
+  // d3.contours closes rings along the grid border; drop those border segments so only true level sets remain
+  const onEdge = ([cx, cy]) => cx <= 0.51 || cy <= 0.51 || cx >= N - 0.51 || cy >= N - 0.51;
+  const ringPath = (ring, z) => {
+    let d = '', pen = false;
+    for (let i = 0; i < ring.length; i++) {
+      const pt = ring[i], prev = ring[i - 1];
+      const [sx, sy] = proj(toW(pt[0]), toW(pt[1]), z);
+      const breakHere = !prev || (onEdge(pt) && onEdge(prev));
+      d += (breakHere || !pen ? 'M' : 'L') + sx.toFixed(1) + ' ' + sy.toFixed(1);
+      pen = true;
+    }
+    return d;
+  };
+
+  const floor = g.append('g');
+  const fc = [[-D, -D], [D, -D], [D, D], [-D, D]].map(([x, y]) => proj(x, y, zFloor));
+  floor.append('path').attr('d', 'M' + fc.map((p) => p.join(' ')).join('L') + 'Z')
+    .attr('fill', C.cyan).attr('fill-opacity', 0.025).attr('stroke', C.white).attr('stroke-opacity', 0.3).attr('stroke-width', 2);
+  for (let t = -D + 1; t < D; t += 1) {
+    for (const [a, b] of [[[t, -D], [t, D]], [[-D, t], [D, t]]]) {
+      const p1 = proj(a[0], a[1], zFloor), p2 = proj(b[0], b[1], zFloor);
+      floor.append('line').attr('x1', p1[0]).attr('y1', p1[1]).attr('x2', p2[0]).attr('y2', p2[1])
+        .attr('stroke', C.white).attr('stroke-opacity', 0.08).attr('stroke-width', 1.5);
+    }
+  }
+  for (const c of contours) for (const poly of c.coordinates) for (const ring of poly) {
+    floor.append('path').attr('d', ringPath(ring, zFloor)).attr('fill', 'none')
+      .attr('stroke', C.cyan).attr('stroke-opacity', 0.16).attr('stroke-width', 1.5);
+  }
+
+  // ---------------- wireframe ----------------
+  const NW = 40;
+  const wire = g.append('g').attr('fill', 'none');
+  const strokeOp = (x, y) => 0.1 + 0.16 * (depthOf(x, y) / (D * 1.42) + 1) / 2;
+  for (let k = 0; k < NW; k++) {
+    const t = -D + (2 * D * k) / (NW - 1);
+    for (const dir of [0, 1]) {
+      const pts = d3.range(0, NW * 2).map((m) => {
+        const s = -D + (2 * D * m) / (NW * 2 - 1);
+        const [x, y] = dir ? [t, s] : [s, t];
+        return proj(x, y, f(x, y));
+      });
+      const [mx, my] = dir ? [t, 0] : [0, t];
+      wire.append('path').attr('d', d3.line()(pts)).attr('stroke', C.white)
+        .attr('stroke-opacity', strokeOp(mx, my)).attr('stroke-width', 1.4);
+    }
+  }
+  // contour lines lifted onto the surface (the cyan level sets)
+  const cont = g.append('g').attr('fill', 'none').attr('filter', 'url(#glow-s)');
+  const lo = levels[0], hi = levels[levels.length - 1];
+  for (const c of contours) {
+    const tl = (c.value - lo) / (hi - lo);
+    for (const poly of c.coordinates) for (const ring of poly) {
+      cont.append('path').attr('d', ringPath(ring, c.value + 0.005)).attr('stroke', C.cyan)
+        .attr('stroke-opacity', 0.85 - 0.6 * tl).attr('stroke-width', 2.6 - 1.2 * tl);
+    }
+  }
+
+  // ---------------- trajectory ----------------
+  const lift = 0.02;
+  const tp = traj.map((d) => proj(d.p[0], d.p[1], d.L + lift));
+  const tg = g.append('g').attr('filter', 'url(#glow-m)');
+  tg.append('path').attr('d', d3.line().curve(d3.curveCatmullRom)(tp)).attr('fill', 'none')
+    .attr('stroke', C.amber).attr('stroke-width', 7).attr('stroke-linecap', 'round');
+  g.append('path').attr('d', d3.line().curve(d3.curveCatmullRom)(tp)).attr('fill', 'none')
+    .attr('stroke', '#fff4d6').attr('stroke-width', 2.5);
+  const dots = g.append('g');
+  tp.forEach((p, i) => {
+    const major = i % 10 === 0;
+    dots.append('circle').attr('cx', p[0]).attr('cy', p[1]).attr('r', major ? 13 : 5)
+      .attr('fill', major ? C.bg : C.amber).attr('stroke', major ? C.amber : 'none').attr('stroke-width', 4);
+  });
+
+  // minimum marker
+  const pm = proj(best[0], best[1], best[2] + lift);
+  const mg = g.append('g').attr('filter', 'url(#glow-s)').attr('stroke', C.magenta).attr('stroke-width', 4).attr('fill', 'none');
+  mg.append('circle').attr('cx', pm[0]).attr('cy', pm[1]).attr('r', 30);
+  mg.append('path').attr('d', `M${pm[0] - 52} ${pm[1]}h34M${pm[0] + 18} ${pm[1]}h34M${pm[0]} ${pm[1] - 52}v34M${pm[0]} ${pm[1] + 18}v34`);
+  // drop line from minimum to floor
+  const pmf = proj(best[0], best[1], zFloor);
+  g.append('line').attr('x1', pm[0]).attr('y1', pm[1] + 30).attr('x2', pmf[0]).attr('y2', pmf[1])
+    .attr('stroke', C.magenta).attr('stroke-opacity', 0.6).attr('stroke-width', 2).attr('stroke-dasharray', '6 8');
+  g.append('circle').attr('cx', pmf[0]).attr('cy', pmf[1]).attr('r', 8).attr('fill', C.magenta);
+
+  // gradient arrow at epoch 0: tangent direction of steepest ascent (gx, gy, |g|²)
+  const p0 = traj[0].p, g0 = grad(...p0);
+  const gn = Math.hypot(g0[0], g0[1]);
+  const kk = 0.85 / gn;
+  const a0 = proj(p0[0], p0[1], traj[0].L + lift);
+  const a1 = proj(p0[0] + g0[0] * kk, p0[1] + g0[1] * kk, traj[0].L + lift + gn * gn * kk);
+  const ag = g.append('g').attr('filter', 'url(#glow-s)');
+  ag.append('line').attr('x1', a0[0]).attr('y1', a0[1]).attr('x2', a1[0]).attr('y2', a1[1])
+    .attr('stroke', C.magenta).attr('stroke-width', 7).attr('marker-end', 'url(#arr-magenta)');
+
+  if (isBg) { P.done(); return; }
+
+  // ---------------- labels ----------------
+  const lab = g.append('g');
+  const placed = [];
+  const fits = (b) => placed.every((q) => b.x1 < q.x0 || b.x0 > q.x1 || b.y1 < q.y0 || b.y0 > q.y1);
+  const reserve = (t) => { const b = t.node().getBBox(); placed.push({ x0: b.x - 8, y0: b.y - 6, x1: b.x + b.width + 8, y1: b.y + b.height + 6 }); };
+  const plate = (t) => {
+    const b = t.node().getBBox();
+    lab.insert('rect', () => t.node()).attr('x', b.x - 10).attr('y', b.y - 4).attr('width', b.width + 20).attr('height', b.height + 8)
+      .attr('rx', 6).attr('fill', C.bg).attr('fill-opacity', 0.8);
+  };
+  // fixed labels first
+  const tG = text(lab, a1[0] + 18, a1[1] - 14, '∇L(θ_{0})', { size: 44, fill: C.magenta, weight: 700 });
+  plate(tG); reserve(tG);
+  const tMin = text(lab, pm[0] + 70, pm[1] + 74, `θ* · L = ${best[2].toFixed(2)}`, { size: 36, fill: C.magenta, weight: 700 });
+  plate(tMin); reserve(tMin);
+  // epoch labels with greedy collision avoidance
+  const dirs = d3.range(16).map((i) => (i * Math.PI) / 8);
+  for (const i of [0, 10, 20, 30, 40, EPOCHS]) {
+    const [x, y] = tp[i];
+    for (const R of [56, 80, 110, 145, 185]) {
+      let ok = false;
+      for (const a of dirs) {
+        const lx = x + Math.cos(a) * R, ly = y + Math.sin(a) * R;
+        const t = text(lab, lx, ly + 10, `ep ${i}`, { size: 30, anchor: Math.cos(a) > 0.3 ? 'start' : Math.cos(a) < -0.3 ? 'end' : 'middle', fill: C.amber, weight: 700 });
+        const b = t.node().getBBox();
+        const bb = { x0: b.x - 8, y0: b.y - 6, x1: b.x + b.width + 8, y1: b.y + b.height + 6 };
+        if (fits(bb) && Math.hypot(...[pm[0] - (bb.x0 + bb.x1) / 2, pm[1] - (bb.y0 + bb.y1) / 2]) > 70) {
+          placed.push(bb);
+          if (R > 60) lab.insert('line', () => t.node()).attr('x1', x).attr('y1', y).attr('x2', lx).attr('y2', ly)
+            .attr('stroke', C.amber).attr('stroke-opacity', 0.6).attr('stroke-width', 2);
+          plate(t);
+          ok = true; break;
+        }
+        t.remove();
+      }
+      if (ok) break;
+    }
+  }
+
+  // axis labels on the floor
+  // label the two floor edges nearest the viewer, outside the floor
+  const edges = [
+    { a: [-D, -D], b: [D, -D], lab: 'w_{1}' }, { a: [-D, D], b: [D, D], lab: 'w_{1}' },
+    { a: [-D, -D], b: [-D, D], lab: 'w_{2}' }, { a: [D, -D], b: [D, D], lab: 'w_{2}' },
+  ];
+  const ctr = proj(0, 0, zFloor);
+  for (const lab2 of ['w_{1}', 'w_{2}']) {
+    const e = edges.filter((q) => q.lab === lab2).sort((p, q) => depthOf(...q.a) + depthOf(...q.b) - depthOf(...p.a) - depthOf(...p.b))[0];
+    const m = proj((e.a[0] + e.b[0]) / 2, (e.a[1] + e.b[1]) / 2, zFloor);
+    const ox = m[0] - ctr[0], oy = m[1] - ctr[1], ol = Math.hypot(ox, oy);
+    text(lab, m[0] + ox / ol * 70, m[1] + oy / ol * 70 + 14, lab2, { size: 44, anchor: 'middle', opacity: 0.85, weight: 500 });
+  }
+  // vertical L axis on the floor corner farthest from the viewer
+  const far = [[-D, -D], [D, -D], [D, D], [-D, D]].sort((p, q) => depthOf(...p) - depthOf(...q))[0];
+  const corner = proj(far[0], far[1], zFloor), cTop = proj(far[0], far[1], 3.0);
+  g.append('line').attr('x1', corner[0]).attr('y1', corner[1]).attr('x2', cTop[0]).attr('y2', cTop[1])
+    .attr('stroke', C.white).attr('stroke-opacity', 0.45).attr('stroke-width', 2.5).attr('marker-end', 'url(#arr-white)');
+  text(lab, cTop[0], cTop[1] - 24, 'L(w)', { size: 40, anchor: 'middle', opacity: 0.85 });
+
+  // ---------------- right panel: loss curve + update rule ----------------
+  const px = 2860, py = 560, pw = 820, ph = 440;
+  const pg = g.append('g');
+  pg.append('path').attr('d', `M${px - 30} ${py - 70}h44M${px - 30} ${py - 70}v44`).attr('stroke', C.cyan).attr('stroke-width', 3).attr('fill', 'none');
+  text(pg, px, py - 30, 'TRAINING LOSS', { size: 30, fill: C.cyan, spacing: 3, weight: 500 });
+  const xs = d3.scaleLinear().domain([0, EPOCHS]).range([px, px + pw]);
+  const Lmax = Math.ceil(d3.max(traj, (d) => d.L) * 2) / 2;
+  const ys = d3.scaleLinear().domain([0, Lmax]).range([py + ph, py]);
+  for (const v of d3.range(0, Lmax + 0.001, 0.5)) {
+    pg.append('line').attr('x1', px).attr('x2', px + pw).attr('y1', ys(v)).attr('y2', ys(v)).attr('stroke', C.white).attr('stroke-opacity', 0.1).attr('stroke-width', 1.5);
+    text(pg, px - 16, ys(v) + 10, v.toFixed(1), { size: 28, anchor: 'end', opacity: 0.55 });
+  }
+  for (const e of d3.range(0, EPOCHS + 1, 10)) text(pg, xs(e), py + ph + 44, String(e), { size: 28, anchor: 'middle', opacity: 0.55 });
+  text(pg, px + pw, py + ph + 92, 'epoch →', { size: 28, anchor: 'end', opacity: 0.55 });
+  pg.append('line').attr('x1', px).attr('x2', px + pw).attr('y1', py + ph).attr('y2', py + ph).attr('stroke', C.white).attr('stroke-opacity', 0.5).attr('stroke-width', 2);
+  pg.append('line').attr('x1', px).attr('x2', px).attr('y1', py).attr('y2', py + ph).attr('stroke', C.white).attr('stroke-opacity', 0.5).attr('stroke-width', 2);
+  pg.append('line').attr('x1', px).attr('x2', px + pw).attr('y1', ys(best[2])).attr('y2', ys(best[2]))
+    .attr('stroke', C.magenta).attr('stroke-width', 2).attr('stroke-dasharray', '8 8').attr('stroke-opacity', 0.8);
+  text(pg, px + pw - 6, ys(best[2]) - 14, 'L(θ*)', { size: 28, anchor: 'end', fill: C.magenta });
+  pg.append('path').attr('d', d3.line()(traj.map((d) => [xs(d.e), ys(d.L)]))).attr('fill', 'none')
+    .attr('stroke', C.amber).attr('stroke-width', 5).attr('filter', 'url(#glow-s)');
+  traj.filter((d) => d.e % 10 === 0).forEach((d) => pg.append('circle').attr('cx', xs(d.e)).attr('cy', ys(d.L)).attr('r', 9).attr('fill', C.bg).attr('stroke', C.amber).attr('stroke-width', 3));
+
+  const fy = py + ph + 210;
+  pg.append('path').attr('d', `M${px - 30} ${fy - 70}h44M${px - 30} ${fy - 70}v44`).attr('stroke', C.cyan).attr('stroke-width', 3).attr('fill', 'none');
+  text(pg, px, fy - 30, 'UPDATE RULE', { size: 30, fill: C.cyan, spacing: 3, weight: 500 });
+  text(pg, px, fy + 40, 'v_{t+1} = β v_{t} + ∇L(θ_{t})', { size: 42, weight: 700 });
+  text(pg, px, fy + 110, 'θ_{t+1} = θ_{t} − η v_{t+1}', { size: 42, weight: 700 });
+  text(pg, px, fy + 180, `η = ${eta} · β = ${beta} · ${EPOCHS} epochs`, { size: 32, fill: C.amber });
+  text(pg, px, fy + 232, `L: ${traj[0].L.toFixed(2)} → ${traj[traj.length - 1].L.toFixed(3)}`, { size: 32, opacity: 0.75 });
+
+  // legend (lower right)
+  const lx = 2860, ly = 1640;
+  const lg = g.append('g');
+  text(lg, lx, ly, 'LEGEND', { size: 28, fill: C.cyan, spacing: 4, weight: 500 });
+  const rows = [
+    [(y) => lg.append('line').attr('x1', lx).attr('x2', lx + 80).attr('y1', y).attr('y2', y).attr('stroke', C.amber).attr('stroke-width', 6).attr('filter', 'url(#glow-s)'), 'optimiser trajectory θ_{t}'],
+    [(y) => lg.append('circle').attr('cx', lx + 40).attr('cy', y).attr('r', 12).attr('fill', C.bg).attr('stroke', C.amber).attr('stroke-width', 4), 'epoch marker (every 10)'],
+    [(y) => lg.append('line').attr('x1', lx).attr('x2', lx + 74).attr('y1', y).attr('y2', y).attr('stroke', C.magenta).attr('stroke-width', 6).attr('marker-end', 'url(#arr-magenta)'), '∇L: steepest ascent; step goes −∇L'],
+    [(y) => lg.append('path').attr('d', `M${lx} ${y}c25 -26 55 -26 80 0`).attr('fill', 'none').attr('stroke', C.cyan).attr('stroke-width', 3), 'level sets L(w) = c'],
+  ];
+  rows.forEach(([draw, label], i) => { const y = ly + 62 + i * 60; draw(y - 10); text(lg, lx + 120, y, label, { size: 30, opacity: 0.85 }); });
+
+  P.done();
+})();
+</script>
+</body>
+</html>

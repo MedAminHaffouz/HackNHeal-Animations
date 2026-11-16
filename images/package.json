@@ -1,0 +1,17 @@
+{
+  "name": "hacknheal-posters",
+  "version": "1.0.0",
+  "description": "Static AI x Bio posters for HackNHeal (3840x2160 SVG/PNG)",
+  "scripts": {
+    "export": "node scripts/export.mjs",
+    "serve": "node scripts/serve.mjs"
+  },
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "d3": "^7.9.0",
+    "playwright": "^1.49.1"
+  },
+  "private": true
+}

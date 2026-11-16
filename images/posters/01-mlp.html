@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Deep Neural Network — HackNHeal</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<script src="../assets/vendor/d3.v7.9.0.min.js"></script>
+<script src="../lib/poster.js"></script>
+</head>
+<body>
+<script>
+(async () => {
+  const P = await Poster.create({
+    num: '01', id: 'mlp', title: 'Deep Neural Network',
+    subtitle: 'Multilayer perceptron · 6 → 10 → 12 → 10 → 6 → 3',
+    hudTop: 'FORWARD PASS · t=0', hudSub: 'MLP · 5 WEIGHT LAYERS · 419 PARAMS',
+  });
+  const { W, H, C, FONT, g, rng, isBg, text } = P;
+  const { diverging, softmax, roundToSum, clamp } = Poster;
+
+  const sizes = [6, 10, 12, 10, 6, 3];
+  const L = sizes.length;
+  const nrng = rng.fork('nodes'), wrng = rng.fork('weights');
+
+  // ---- geometry ----
+  const x0 = isBg ? 260 : 760, x1 = isBg ? W - 260 : 2960;
+  const cy = isBg ? H / 2 : 1215;
+  const dy = isBg ? 150 : 108;
+  const R = isBg ? 54 : 48;
+  const lx = (l) => x0 + (x1 - x0) * l / (L - 1);
+
+  // ---- values: pre-activations z ∈ [-1,1]; a few strong positive "firing" units ----
+  const pathIdx = sizes.map((n) => nrng.int(Math.floor(n * 0.2), Math.ceil(n * 0.8) - 1));
+  const layers = sizes.map((n, l) => {
+    const firing = new Set([pathIdx[l]]);
+    if (l > 0 && l < L - 1) while (firing.size < 2) firing.add(nrng.int(0, n - 1));
+    return d3.range(n).map((i) => {
+      let v;
+      if (l === L - 1) v = i === pathIdx[l] ? nrng.uniform(0.82, 0.97) : nrng.uniform(-0.75, 0.25);
+      else if (firing.has(i)) v = nrng.uniform(0.78, 0.98);
+      else v = clamp(nrng.normal(-0.1, 0.32), -0.96, 0.52);
+      v = Math.round(v * 100) / 100;
+      return { l, i, v, x: lx(l), y: cy + (i - (n - 1) / 2) * dy, path: i === pathIdx[l] };
+    });
+  });
+  const edges = [];
+  for (let l = 0; l < L - 1; l++) {
+    for (const a of layers[l]) for (const b of layers[l + 1]) {
+      let w = clamp(wrng.normal(0, 0.45), -1, 1);
+      const onPath = a.path && b.path;
+      if (onPath) w = wrng.uniform(0.85, 1);
+      edges.push({ a, b, w, onPath });
+    }
+  }
+
+  // ---- edges ----
+  const eg = g.append('g').attr('fill', 'none');
+  const curve = (e) => {
+    const mx = (e.a.x + e.b.x) / 2;
+    return `M${e.a.x + R} ${e.a.y}C${mx} ${e.a.y} ${mx} ${e.b.y} ${e.b.x - R} ${e.b.y}`;
+  };
+  eg.selectAll('path').data(edges.filter((e) => !e.onPath).sort((p, q) => Math.abs(p.w) - Math.abs(q.w)))
+    .join('path').attr('d', curve)
+    .attr('stroke', (e) => (e.w >= 0 ? C.cyan : C.magenta))
+    .attr('stroke-opacity', (e) => 0.03 + 0.42 * Math.pow(Math.abs(e.w), 1.6))
+    .attr('stroke-width', (e) => 1.2 + 3.2 * Math.abs(e.w));
+
+  // highlighted forward path
+  const pathEdges = edges.filter((e) => e.onPath);
+  const pg = g.append('g').attr('fill', 'none').attr('filter', 'url(#glow-m)');
+  pg.selectAll('path').data(pathEdges).join('path').attr('d', curve)
+    .attr('stroke', C.cyan).attr('stroke-width', 9).attr('stroke-opacity', 0.95);
+  pg.selectAll('path.core').data(pathEdges).join('path').attr('class', 'core').attr('d', curve)
+    .attr('stroke', '#e8fdff').attr('stroke-width', 3);
+  // signal packets travelling along the path
+  const pk = g.append('g').attr('filter', 'url(#glow-s)');
+  for (const e of pathEdges) {
+    const tmp = eg.append('path').attr('d', curve(e));
+    const len = tmp.node().getTotalLength();
+    for (const f of [0.3, 0.62]) {
+      const pt = tmp.node().getPointAtLength(len * f);
+      pk.append('circle').attr('cx', pt.x).attr('cy', pt.y).attr('r', f > 0.5 ? 9 : 6).attr('fill', '#ffffff');
+    }
+    tmp.remove();
+  }
+
+  // ---- nodes ----
+  const all = layers.flat();
+  const halo = g.append('g').attr('filter', 'url(#halo)');
+  halo.selectAll('circle').data(all.filter((d) => Math.abs(d.v) > 0.45)).join('circle')
+    .attr('cx', (d) => d.x).attr('cy', (d) => d.y)
+    .attr('r', (d) => R * (1 + 0.9 * Math.abs(d.v)))
+    .attr('fill', (d) => (d.v >= 0 ? C.cyan : C.magenta))
+    .attr('fill-opacity', (d) => 0.95 * Math.pow(Math.abs(d.v), 2.2));
+  const ng = g.append('g');
+  ng.selectAll('circle.ring').data(all).join('circle').attr('class', 'ring')
+    .attr('cx', (d) => d.x).attr('cy', (d) => d.y).attr('r', R + 9)
+    .attr('fill', 'none').attr('stroke', (d) => (d.v >= 0 ? C.cyan : C.magenta))
+    .attr('stroke-opacity', (d) => 0.15 + 0.5 * Math.abs(d.v)).attr('stroke-width', 2)
+    .attr('stroke-dasharray', (d) => (Math.abs(d.v) > 0.7 ? null : '6 8'));
+  ng.selectAll('circle.body').data(all).join('circle').attr('class', 'body')
+    .attr('cx', (d) => d.x).attr('cy', (d) => d.y).attr('r', R)
+    .attr('fill', (d) => diverging(d.v))
+    .attr('stroke', (d) => d3.interpolateRgb(diverging(d.v), '#ffffff')(0.35)).attr('stroke-width', 3);
+  const fmt = (v) => (v < 0 ? '−' : '') + Math.abs(v).toFixed(2);
+  for (const d of all) {
+    const bright = Math.abs(d.v) > 0.5;
+    text(ng, d.x, d.y + 10, fmt(d.v), {
+      size: 28, anchor: 'middle', weight: bright ? 700 : 500,
+      fill: bright ? '#05070d' : '#ffffff', opacity: bright ? 1 : 0.85,
+    });
+  }
+
+  if (isBg) { P.done(); return; }
+
+  // ---- inputs (standardised clinical features) ----
+  const feats = ['HbA1c', 'glucose', 'BMI', 'age', 'CRP', 'LDL'];
+  layers[0].forEach((d, i) => {
+    text(g, d.x - R - 34, d.y + 2, `x_{${i + 1}}`, { size: 38, anchor: 'end', fill: C.white, weight: 500 });
+    text(g, d.x - R - 140, d.y + 2, feats[i], { size: 30, anchor: 'end', fill: C.white, opacity: 0.55 });
+  });
+
+  // ---- outputs: logits → softmax ----
+  const classes = ['healthy', 'pre-diabetic', 'type 2 diabetes'];
+  const out = layers[L - 1];
+  const probs = roundToSum(softmax(out.map((d) => d.v)), 2);
+  const bx = x1 + R + 120, bw = 300;
+  text(g, bx - 70, out[0].y - 120, 'ŷ = softmax(z)', { size: 40, fill: C.amber, weight: 500 });
+  out.forEach((d, i) => {
+    const p = probs[i];
+    const top = i === pathIdx[L - 1];
+    const col = top ? C.amber : C.white;
+    g.append('line').attr('x1', d.x + R + 14).attr('x2', bx - 20).attr('y1', d.y).attr('y2', d.y)
+      .attr('stroke', col).attr('stroke-opacity', 0.5).attr('stroke-width', 2).attr('stroke-dasharray', '4 6');
+    g.append('rect').attr('x', bx).attr('y', d.y - 20).attr('width', bw).attr('height', 22)
+      .attr('fill', 'none').attr('stroke', C.white).attr('stroke-opacity', 0.3).attr('stroke-width', 2);
+    g.append('rect').attr('x', bx).attr('y', d.y - 20).attr('width', bw * p).attr('height', 22)
+      .attr('fill', col).attr('fill-opacity', top ? 1 : 0.55).attr('filter', top ? 'url(#glow-s)' : null);
+    text(g, bx + bw + 26, d.y + 2, p.toFixed(2), { size: 40, fill: col, weight: 700 });
+    text(g, bx, d.y + 52, `ŷ_{${i + 1}}  ${classes[i]}`, { size: 30, fill: col, opacity: top ? 0.95 : 0.6 });
+  });
+  text(g, bx, out[2].y + 140, `Σ ŷ_{i} = ${probs.reduce((a, b) => a + b, 0).toFixed(2)}`, { size: 32, opacity: 0.55 });
+
+  // ---- layer labels (bottom) ----
+  const names = ['INPUT', 'HIDDEN 1', 'HIDDEN 2', 'HIDDEN 3', 'HIDDEN 4', 'OUTPUT'];
+  const acts = ['', 'ReLU', 'ReLU', 'ReLU', 'ReLU', 'softmax'];
+  const maths = ['x ∈ ℝ^{6}', 'h_{1} ∈ ℝ^{10}', 'h_{2} ∈ ℝ^{12}', 'h_{3} ∈ ℝ^{10}', 'h_{4} ∈ ℝ^{6}', 'ŷ ∈ ℝ^{3}'];
+  const yb = 1935;
+  sizes.forEach((n, l) => {
+    const x = lx(l);
+    g.append('line').attr('x1', x).attr('x2', x).attr('y1', yb - 50).attr('y2', yb - 30)
+      .attr('stroke', C.cyan).attr('stroke-opacity', 0.5).attr('stroke-width', 2);
+    text(g, x, yb, names[l] + (acts[l] ? ' · ' : ''), { size: 28, anchor: 'middle', opacity: 0.5, spacing: 3 })
+      .append('tspan').attr('fill', l === L - 1 ? C.amber : C.cyan).attr('fill-opacity', 1).text(acts[l]);
+    text(g, x, yb + 56, maths[l], { size: 40, anchor: 'middle', fill: C.white, weight: 500 });
+  });
+  // weight-matrix dims between layers (top)
+  for (let l = 0; l < L - 1; l++) {
+    const xm = (lx(l) + lx(l + 1)) / 2;
+    text(g, xm, 520, `W_{${l + 1}} ∈ ℝ^{${sizes[l + 1]}×${sizes[l]}}`, { size: 32, anchor: 'middle', fill: C.white, opacity: 0.7 });
+  }
+
+  // ---- equations panel (top right) ----
+  const ex = 3060, ey = 300;
+  const panel = g.append('g');
+  panel.append('path').attr('d', `M${ex} ${ey}h40M${ex} ${ey}v40`).attr('stroke', C.cyan).attr('stroke-width', 3).attr('fill', 'none');
+  text(panel, ex + 30, ey + 56, 'h_{l} = ReLU(W_{l} h_{l−1} + b_{l})', { size: 36, fill: C.white });
+  text(panel, ex + 30, ey + 118, 'ŷ = softmax(W_{5} h_{4} + b_{5})', { size: 36, fill: C.white });
+  text(panel, ex + 30, ey + 174, 'ReLU(z) = max(0, z)', { size: 30, opacity: 0.55 });
+
+  // ---- legend (bottom right) ----
+  const gx = 3180, gy = 1700;
+  const gr = P.defs.append('linearGradient').attr('id', 'divg');
+  d3.range(0, 1.0001, 0.1).forEach((t) => gr.append('stop').attr('offset', t).attr('stop-color', diverging(t * 2 - 1)));
+  text(g, gx, gy - 34, 'pre-activation z', { size: 30, opacity: 0.7 });
+  g.append('rect').attr('x', gx).attr('y', gy).attr('width', 440).attr('height', 22).attr('fill', 'url(#divg)');
+  [['−1', 0], ['0', 0.5], ['+1', 1]].forEach(([s, t]) =>
+    text(g, gx + 440 * t, gy + 66, s, { size: 30, anchor: 'middle', opacity: 0.7 }));
+  g.append('line').attr('x1', gx).attr('x2', gx + 70).attr('y1', gy + 128).attr('y2', gy + 128).attr('stroke', C.cyan).attr('stroke-width', 4);
+  text(g, gx + 90, gy + 138, 'w > 0', { size: 30, opacity: 0.7 });
+  g.append('line').attr('x1', gx + 240).attr('x2', gx + 310).attr('y1', gy + 128).attr('y2', gy + 128).attr('stroke', C.magenta).attr('stroke-width', 4);
+  text(g, gx + 330, gy + 138, 'w < 0', { size: 30, opacity: 0.7 });
+
+  P.done();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HackNHeal · Visuals</title>
+  <meta name="description" content="Animated biotech HUD visuals for HackNHeal — AI × Bio/Health." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <main class="gallery">
+    <header class="g-head">
+      <p class="g-kicker">ANDROID CLUB INSAT × SYMBIO INSAT · AI × BIO/HEALTH</p>
+      <h1>HackNHeal <span>// visual systems</span></h1>
+      <p class="g-lede">Four animated visuals for the website, projection screens and social clips.
+        Every visual is a standalone page you can open full-screen, record, or embed with an iframe.</p>
+    </header>
+
+    <section class="g-grid" id="grid"></section>
+
+    <section class="g-ref">
+      <div>
+        <h2>URL params</h2>
+        <table>
+          <tr><td><code>?bg=transparent</code></td><td>transparent canvas (compositing, OBS, overlays)</td></tr>
+          <tr><td><code>?hud=0</code></td><td>clean render, no overlay text</td></tr>
+          <tr><td><code>?speed=0.5</code></td><td>global time scale</td></tr>
+          <tr><td><code>?quality=low|high</code></td><td>GPU budget (low = integrated GPUs)</td></tr>
+          <tr><td><code>?t=12</code></td><td>start the timeline at 12&nbsp;s</td></tr>
+          <tr><td><code>?motion=full|reduced</code></td><td>override prefers-reduced-motion</td></tr>
+        </table>
+      </div>
+      <div>
+        <h2>Hotkeys</h2>
+        <table>
+          <tr><td><kbd>R</kbd></td><td>start / stop WebM recording (HUD included)</td></tr>
+          <tr><td><kbd>S</kbd></td><td>save PNG at 2× resolution</td></tr>
+          <tr><td><kbd>H</kbd></td><td>toggle HUD</td></tr>
+          <tr><td><kbd>Space</kbd></td><td>pause / resume</td></tr>
+          <tr><td><kbd>?</kbd></td><td>help overlay (lists visual-specific keys)</td></tr>
+        </table>
+      </div>
+      <div class="g-embed">
+        <h2>Embed</h2>
+        <pre><code>&lt;iframe src="dna.html?hud=0&amp;bg=transparent"
+  style="width:100%;aspect-ratio:16/9;border:0"
+  allow="autoplay" loading="lazy"&gt;&lt;/iframe&gt;</code></pre>
+      </div>
+    </section>
+    <footer class="g-foot">
+      <span>HACKNHEAL · 2026</span>
+      <label><input type="checkbox" id="live" checked /> live previews</label>
+    </footer>
+  </main>
+  <script type="module" src="/src/gallery/main.ts"></script>
+</body>
+</html>

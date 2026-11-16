@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Transformer — HackNHeal</title>
+<link rel="stylesheet" href="../assets/tokens.css">
+<script src="../assets/vendor/d3.v7.9.0.min.js"></script>
+<script src="../lib/poster.js"></script>
+</head>
+<body>
+<script>
+(async () => {
+  const P = await Poster.create({
+    num: '02', id: 'transformer', title: 'Transformer',
+    subtitle: 'Attention Is All You Need · Vaswani et al., 2017',
+    hudTop: 'ENCODER–DECODER · POST-LN', hudSub: 'TASK: CODON → AMINO ACID',
+  });
+  const { W, H, C, g, rng, isBg, text, defs } = P;
+
+  // ---------------- block diagram ----------------
+  const BW = 580;
+  const encX = isBg ? 560 : 820, decX = isBg ? W - 560 : 1820;
+  const RES = 370;                   // residual lane offset from column centre
+  const line = (parent, pts, o = {}) => parent.append('path')
+    .attr('d', d3.line()(pts)).attr('fill', 'none')
+    .attr('stroke', o.color || C.white).attr('stroke-opacity', o.op ?? 0.75)
+    .attr('stroke-width', o.w || 3).attr('stroke-linejoin', 'round')
+    .attr('stroke-dasharray', o.dash || null)
+    .attr('marker-end', o.arrow === false ? null : `url(#${o.marker || 'arr-white'})`);
+
+  const glowG = g.append('g').attr('filter', 'url(#glow-s)');
+  const wires = g.append('g');
+  const labels = g.append('g');
+
+  function block(cx, cy, h, name, sub, color, o = {}) {
+    const x = cx - BW / 2, y = cy - h / 2;
+    glowG.append('rect').attr('x', x).attr('y', y).attr('width', BW).attr('height', h).attr('rx', 14)
+      .attr('fill', color).attr('fill-opacity', o.fill ?? 0.1)
+      .attr('stroke', color).attr('stroke-width', 3).attr('stroke-opacity', 0.95);
+    // inner hairline + corner ticks for blueprint feel
+    labels.append('rect').attr('x', x + 8).attr('y', y + 8).attr('width', BW - 16).attr('height', h - 16).attr('rx', 9)
+      .attr('fill', 'none').attr('stroke', color).attr('stroke-opacity', 0.25).attr('stroke-width', 1.5);
+    if (sub) {
+      text(labels, cx, cy - 6, name, { size: 34, anchor: 'middle', weight: 700, fill: C.white });
+      text(labels, cx, cy + 30, sub, { size: 28, anchor: 'middle', fill: color, opacity: 0.95 });
+    } else {
+      text(labels, cx, cy + 12, name, { size: 34, anchor: 'middle', weight: 700, fill: C.white });
+    }
+    return { top: y, bot: y + h, cx, cy };
+  }
+  function pe(cx, cy, side) {
+    glowG.append('circle').attr('cx', cx).attr('cy', cy).attr('r', 30)
+      .attr('fill', C.bg).attr('stroke', C.white).attr('stroke-width', 3);
+    labels.append('path').attr('d', `M${cx - 18} ${cy}H${cx + 18}M${cx} ${cy - 18}V${cy + 18}`)
+      .attr('stroke', C.white).attr('stroke-width', 3);
+    // sinusoid icon + label
+    const ix = cx + side * 110;
+    const pts = d3.range(0, 1.0001, 0.02).map((t) => [ix + side * t * 110, cy + 22 * Math.sin(t * Math.PI * 4)]);
+    glowG.append('path').attr('d', d3.line()(pts)).attr('fill', 'none').attr('stroke', C.magenta).attr('stroke-width', 3);
+    line(wires, [[cx + side * 100, cy], [cx + side * 40, cy]], { color: C.magenta, op: 0.9, marker: 'arr-magenta' });
+    if (!isBg) text(labels, ix + side * 130, cy + 11, 'Positional Encoding', { size: 30, anchor: side < 0 ? 'end' : 'start', fill: C.magenta });
+    return { top: cy - 30, bot: cy + 30 };
+  }
+  // fork the stream into V, K, Q arrows entering an attention block from below
+  function qkv(cx, yFrom, yTo, which = 'VKQ') {
+    const xs = [cx - 150, cx, cx + 150];
+    const ym = yTo + 34;
+    line(wires, [[cx, yFrom], [cx, ym]], { arrow: false });
+    line(wires, [[xs[0], ym], [xs[2], ym]], { arrow: false });
+    xs.forEach((x, i) => {
+      line(wires, [[x, ym], [x, yTo + 4]]);
+      if (!isBg) text(labels, x + 14, ym - 4, which[i], { size: 28, fill: C.cyan, weight: 700 });
+    });
+  }
+  function residual(cx, side, yBranch, yNorm) {
+    const xr = cx + side * RES;
+    wires.append('circle').attr('cx', cx).attr('cy', yBranch).attr('r', 7).attr('fill', C.white);
+    line(wires, [[cx, yBranch], [xr, yBranch], [xr, yNorm], [cx + side * (BW / 2 + 6), yNorm]], { color: C.amber, op: 0.8, marker: 'arr-amber' });
+  }
+
+  // ----- encoder (residuals on the left, like the paper) -----
+  const E = encX, es = -1;
+  const eEmb = block(E, 1880, 100, 'Input Embedding', isBg ? null : 'd_{model} = 512', C.white, { fill: 0.06 });
+  const ePE = pe(E, 1765, es);
+  line(wires, [[E, eEmb.top], [E, ePE.bot + 4]]);
+  const eMHA = block(E, 1565, 100, 'Multi-Head Attention', 'h = 8 · d_{k} = d_{v} = 64', C.cyan);
+  residual(E, es, 1690, 1440);
+  qkv(E, ePE.top, eMHA.bot);
+  const eAN1 = block(E, 1440, 64, 'Add & Norm', null, C.amber, { fill: 0.08 });
+  line(wires, [[E, eMHA.top], [E, eAN1.bot + 4]]);
+  const eFF = block(E, 1280, 100, 'Feed Forward', '512 → 2048 → 512 · ReLU', C.magenta);
+  residual(E, es, 1370, 1155);
+  line(wires, [[E, eAN1.top], [E, eFF.bot + 4]]);
+  const eAN2 = block(E, 1155, 64, 'Add & Norm', null, C.amber, { fill: 0.08 });
+  line(wires, [[E, eFF.top], [E, eAN2.bot + 4]]);
+  // N× box
+  const ebox = { x0: E - RES - 40, x1: E + BW / 2 + 40, y0: 1095, y1: 1722 };
+  g.insert('rect', ':first-child').attr('x', ebox.x0).attr('y', ebox.y0)
+    .attr('width', ebox.x1 - ebox.x0).attr('height', ebox.y1 - ebox.y0).attr('rx', 26)
+    .attr('fill', C.white).attr('fill-opacity', 0.025).attr('stroke', C.white).attr('stroke-opacity', 0.35)
+    .attr('stroke-width', 2).attr('stroke-dasharray', '14 10');
+
+  // ----- decoder (residuals on the right) -----
+  const D = decX, ds = 1;
+  const dEmb = block(D, 1880, 100, 'Output Embedding', isBg ? null : 'd_{model} = 512', C.white, { fill: 0.06 });
+  const dPE = pe(D, 1765, ds);
+  line(wires, [[D, dEmb.top], [D, dPE.bot + 4]]);
+  const dMM = block(D, 1565, 100, 'Masked Multi-Head Attention', 'causal mask · h = 8', C.cyan);
+  residual(D, ds, 1690, 1440);
+  qkv(D, dPE.top, dMM.bot);
+  const dAN1 = block(D, 1440, 64, 'Add & Norm', null, C.amber, { fill: 0.08 });
+  line(wires, [[D, dMM.top], [D, dAN1.bot + 4]]);
+  const dX = block(D, 1230, 100, 'Multi-Head Attention', 'cross-attn · K, V from encoder', C.cyan);
+  residual(D, ds, 1370, 1105);
+  // Q from decoder stream
+  line(wires, [[D, dAN1.top], [D, 1370], [D + 150, 1370], [D + 150, dX.bot + 4]]);
+  if (!isBg) text(labels, D + 164, 1328, 'Q', { size: 28, fill: C.cyan, weight: 700 });
+  const dAN2 = block(D, 1105, 64, 'Add & Norm', null, C.amber, { fill: 0.08 });
+  line(wires, [[D, dX.top], [D, dAN2.bot + 4]]);
+  const dFF = block(D, 945, 100, 'Feed Forward', '512 → 2048 → 512 · ReLU', C.magenta);
+  residual(D, ds, 1035, 820);
+  line(wires, [[D, dAN2.top], [D, dFF.bot + 4]]);
+  const dAN3 = block(D, 820, 64, 'Add & Norm', null, C.amber, { fill: 0.08 });
+  line(wires, [[D, dFF.top], [D, dAN3.bot + 4]]);
+  const dbox = { x0: D - BW / 2 - 40, x1: D + RES + 40, y0: 760, y1: 1722 };
+  g.insert('rect', ':first-child').attr('x', dbox.x0).attr('y', dbox.y0)
+    .attr('width', dbox.x1 - dbox.x0).attr('height', dbox.y1 - dbox.y0).attr('rx', 26)
+    .attr('fill', C.white).attr('fill-opacity', 0.025).attr('stroke', C.white).attr('stroke-opacity', 0.35)
+    .attr('stroke-width', 2).attr('stroke-dasharray', '14 10');
+  const dLin = block(D, 670, 80, 'Linear', null, C.white, { fill: 0.06 });
+  line(wires, [[D, dAN3.top], [D, dLin.bot + 4]]);
+  const dSm = block(D, 550, 80, 'Softmax', null, C.white, { fill: 0.06 });
+  line(wires, [[D, dLin.top], [D, dSm.bot + 4]]);
+  line(wires, [[D, dSm.top], [D, isBg ? 420 : 470]]);
+
+  // encoder output → K, V of decoder cross-attention
+  const routeX = (E + BW / 2 + 40 + D - BW / 2 - 40) / 2;
+  const ky = 1322;
+  const encOut = [[E, eAN2.top], [E, 1010], [routeX, 1010], [routeX, ky], [D, ky]];
+  glowG.append('path').attr('d', d3.line()(encOut)).attr('fill', 'none').attr('stroke', C.cyan)
+    .attr('stroke-width', 5).attr('stroke-opacity', 0.9).attr('stroke-linejoin', 'round');
+  for (const [x, l] of [[D - 150, 'V'], [D, 'K']]) {
+    line(wires, [[x, ky], [x, dX.bot + 4]], { color: C.cyan, op: 1, marker: 'arr-cyan' });
+    if (!isBg) text(labels, x + 14, ky - 6, l, { size: 28, fill: C.cyan, weight: 700 });
+  }
+  wires.append('circle').attr('cx', D - 150).attr('cy', ky).attr('r', 7).attr('fill', C.cyan);
+
+  if (!isBg) {
+    // stack labels
+    text(labels, ebox.x0 - 30, 1180, 'ENCODER', { size: 32, anchor: 'end', fill: C.cyan, spacing: 4, weight: 500 });
+    text(labels, ebox.x0 - 30, 1420, 'N×', { size: 72, anchor: 'end', font: 'title', weight: 700 });
+    text(labels, ebox.x0 - 30, 1470, 'N = 6', { size: 30, anchor: 'end', opacity: 0.6 });
+    text(labels, dbox.x1 + 30, 845, 'DECODER', { size: 32, fill: C.cyan, spacing: 4, weight: 500 });
+    text(labels, dbox.x1 + 30, 1085, 'N×', { size: 72, font: 'title', weight: 700 });
+    text(labels, dbox.x1 + 30, 1135, 'N = 6', { size: 30, opacity: 0.6 });
+    text(labels, routeX + 18, 960, 'memory', { size: 28, anchor: 'middle', fill: C.cyan, opacity: 0.9 });
+    // I/O captions
+    text(labels, E, 2000, 'Inputs · ATG GCC TTA GAA …', { size: 30, anchor: 'middle', opacity: 0.8 });
+    line(wires, [[E, 1962], [E, eEmb.bot + 4]]);
+    text(labels, D, 2000, 'Outputs (shifted right) · <s> M A L …', { size: 30, anchor: 'middle', opacity: 0.8 });
+    line(wires, [[D, 1962], [D, dEmb.bot + 4]]);
+    text(labels, D, 455, 'Output Probabilities · next amino acid', { size: 30, anchor: 'middle', opacity: 0.8 });
+    text(labels, D - BW / 2 - 22, 682, '512 → |V|', { size: 28, anchor: 'end', opacity: 0.6 });
+    text(labels, D - BW / 2 - 22, 562, 'p(y_{t} | y_{<t}, x)', { size: 30, anchor: 'end', opacity: 0.6 });
+  }
+
+  if (isBg) { P.done(); return; }
+
+  // ---------------- attention heatmap inset ----------------
+  const toks = ['ATG', 'GCC', 'TTA', 'GAA', 'AAA', 'TGG', 'CGT', 'TCT', 'GGC', 'CAT', 'ACC', 'TAA'];
+  const n = toks.length;
+  const hr = rng.fork('heat');
+  const logits = d3.range(n).map((i) => d3.range(n).map((j) => hr.normal(0, 0.55) + (i === j ? 2.0 : 0) + (j === i - 1 ? 1.1 : 0)));
+  // start/stop codon pairing + a few seeded long-range hotspots
+  logits[n - 1][0] += 4.2; logits[0][n - 1] += 3.6;
+  for (let k = 0; k < 3; k++) {
+    const i = hr.int(1, n - 2); let j = hr.int(0, n - 1);
+    if (Math.abs(i - j) < 3) j = (i + 5) % n;
+    logits[i][j] += 3.4;
+  }
+  const A = logits.map((row) => Poster.softmax(row));
+
+  const hx = 2600, hy = 470, cs = 80;
+  const inset = g.append('g');
+  text(inset, 2480, 330, 'ENCODER SELF-ATTENTION · HEAD 3', { size: 32, fill: C.cyan, spacing: 3, weight: 500 });
+  text(inset, 2480, 378, 'α_{ij} : query row i → key column j · rows sum to 1', { size: 28, opacity: 0.6 });
+  const heat = (v) => (v < 0.5 ? d3.interpolateRgb('#0b1324', C.cyan)(Math.pow(v / 0.5, 0.7)) : d3.interpolateRgb(C.cyan, '#ffffff')((v - 0.5) / 0.5));
+  const cells = inset.append('g');
+  const hot = inset.append('g').attr('filter', 'url(#glow-s)');
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) {
+    const v = A[i][j];
+    const target = v > 0.4 ? hot : cells;
+    target.append('rect').attr('x', hx + j * cs + 2).attr('y', hy + i * cs + 2).attr('width', cs - 4).attr('height', cs - 4)
+      .attr('rx', 6).attr('fill', heat(v));
+    if (v >= 0.3) text(inset, hx + j * cs + cs / 2, hy + i * cs + cs / 2 + 10, v.toFixed(2).slice(1), { size: 28, anchor: 'middle', fill: '#05070d', weight: 700 });
+  }
+  inset.append('rect').attr('x', hx).attr('y', hy).attr('width', n * cs).attr('height', n * cs)
+    .attr('fill', 'none').attr('stroke', C.cyan).attr('stroke-opacity', 0.5).attr('stroke-width', 2);
+  toks.forEach((t, i) => {
+    const special = i === 0 || i === n - 1;
+    text(inset, hx - 16, hy + i * cs + cs / 2 + 10, t, { size: 28, anchor: 'end', fill: special ? C.amber : C.white, opacity: special ? 1 : 0.75 });
+    text(inset, hx + i * cs + cs / 2, hy - 18, t, { size: 28, anchor: 'middle', fill: special ? C.amber : C.white, opacity: special ? 1 : 0.75 });
+  });
+  // colour bar
+  const cbx = hx + n * cs + 36;
+  const cb = defs.append('linearGradient').attr('id', 'heatbar').attr('x1', 0).attr('x2', 0).attr('y1', 1).attr('y2', 0);
+  d3.range(0, 1.0001, 0.1).forEach((t) => cb.append('stop').attr('offset', t).attr('stop-color', heat(t)));
+  inset.append('rect').attr('x', cbx).attr('y', hy).attr('width', 20).attr('height', n * cs).attr('fill', 'url(#heatbar)');
+  text(inset, cbx + 10, hy + n * cs + 44, '0', { size: 28, anchor: 'middle', opacity: 0.6 });
+  text(inset, cbx + 10, hy - 18, '1', { size: 28, anchor: 'middle', opacity: 0.6 });
+  text(inset, hx, hy + n * cs + 52, 'ATG (start) ↔ TAA (stop): long-range dependency', { size: 28, fill: C.amber, opacity: 0.85 });
+
+  // ---------------- formula inset ----------------
+  const fx = 2480, fy = 1590;
+  const fg = g.append('g');
+  fg.append('path').attr('d', `M${fx - 30} ${fy - 30}h44M${fx - 30} ${fy - 30}v44`).attr('stroke', C.cyan).attr('stroke-width', 3).attr('fill', 'none');
+  text(fg, fx, fy, 'SCALED DOT-PRODUCT ATTENTION', { size: 28, fill: C.cyan, spacing: 3, weight: 500 });
+  text(fg, fx, fy + 82, 'Attention(Q,K,V) = softmax(QK^{T}/√d_{k}) V', { size: 46, weight: 700, filter: 'glow-s' });
+  text(fg, fx, fy + 152, 'MultiHead(Q,K,V) = Concat(head_{1},…,head_{h}) W^{O}', { size: 32, opacity: 0.85 });
+  text(fg, fx, fy + 208, 'sublayer out = LayerNorm(x + Sublayer(x))', { size: 32, opacity: 0.85 });
+  text(fg, fx, fy + 264, 'PE_{(pos,2i)} = sin(pos / 10000^{2i/512})', { size: 32, opacity: 0.85 });
+  text(fg, fx, fy + 340, 'N=6 · d_{model}=512 · h=8 · d_{k}=64 · d_{ff}=2048', { size: 30, fill: C.amber });
+
+  P.done();
+})();
+</script>
+</body>
+</html>

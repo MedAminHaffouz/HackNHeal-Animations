@@ -1,0 +1,25 @@
+/* HackNHeal poster design tokens */
+@font-face { font-family: 'JetBrains Mono'; src: url(fonts/JetBrainsMono-Regular.ttf) format('truetype'); font-weight: 400; }
+@font-face { font-family: 'JetBrains Mono'; src: url(fonts/JetBrainsMono-Medium.ttf) format('truetype'); font-weight: 500; }
+@font-face { font-family: 'JetBrains Mono'; src: url(fonts/JetBrainsMono-Bold.ttf) format('truetype'); font-weight: 700; }
+@font-face { font-family: 'STIX Two Text'; src: url(fonts/STIXTwoText-Greek-Italic.woff2) format('woff2'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'STIX Two Text'; src: url(fonts/STIXTwoText-Greek-BoldItalic.woff2) format('woff2'); font-weight: 700; font-style: italic; }
+@font-face { font-family: 'Space Grotesk'; src: url(fonts/SpaceGrotesk-Variable.ttf) format('truetype'); font-weight: 300 700; }
+
+:root {
+  --bg: #05070d;
+  --cyan: #00e5ff;
+  --magenta: #ff2bd6;
+  --amber: #ffb300;
+  --white: #ffffff;
+  --grid-minor: rgba(255, 255, 255, 0.035);
+  --grid-major: rgba(255, 255, 255, 0.075);
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-title: 'Space Grotesk', 'JetBrains Mono', sans-serif;
+  --font-greek: 'STIX Two Text', serif; /* lowercase Greek in formulas (JetBrains Mono's α/η look like a/n) */
+}
+
+html, body { margin: 0; padding: 0; background: var(--bg); }
+body { min-height: 100vh; display: grid; place-items: center; overflow: hidden; }
+/* Native size is 3840x2160; scale down to fit the window when previewing. */
+svg.poster { display: block; width: min(100vw, calc(100vh * 16 / 9)); height: auto; }

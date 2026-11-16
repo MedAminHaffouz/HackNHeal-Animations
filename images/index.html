@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HackNHeal Posters</title>
+<link rel="stylesheet" href="assets/tokens.css">
+<style>
+  html, body { background: var(--bg); color: #fff; }
+  body { display: block; min-height: 100vh; overflow: auto; margin: 0; font-family: var(--font-mono);
+    background-image:
+      linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+    background-size: 24px 24px; }
+  main { max-width: 1680px; margin: 0 auto; padding: 48px 16px 80px; }
+  header { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: end; justify-content: space-between; margin-bottom: 36px; }
+  .kicker { color: var(--cyan); letter-spacing: .3em; font-size: 13px; margin: 0 0 10px; }
+  h1 { font-family: var(--font-title); font-weight: 700; font-size: clamp(32px, 5vw, 56px); margin: 0; letter-spacing: -.01em; }
+  .sub { color: rgba(255,255,255,.6); margin: 8px 0 0; font-size: 14px; }
+  .toggle { display: inline-flex; border: 1px solid rgba(0,229,255,.5); border-radius: 999px; overflow: hidden; }
+  .toggle button { background: transparent; color: #fff; border: 0; font: inherit; font-size: 13px; padding: 10px 18px; cursor: pointer; letter-spacing: .1em; }
+  .toggle button[aria-pressed="true"] { background: var(--cyan); color: var(--bg); font-weight: 700; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 480px), 1fr)); gap: 28px; }
+  figure { margin: 0; position: relative; }
+  .frame { position: relative; display: block; aspect-ratio: 16 / 9; background: #000; border: 1px solid rgba(255,255,255,.12); cursor: zoom-in; padding: 0; width: 100%; }
+  .frame img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .frame::before, .frame::after { content: ""; position: absolute; width: 18px; height: 18px; border-color: var(--cyan); border-style: solid; pointer-events: none; }
+  .frame::before { top: -1px; left: -1px; border-width: 2px 0 0 2px; }
+  .frame::after { bottom: -1px; right: -1px; border-width: 0 2px 2px 0; }
+  .frame:hover { border-color: rgba(0,229,255,.6); }
+  figcaption { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 12px 2px 0; font-size: 13px; }
+  figcaption b { font-family: var(--font-title); font-size: 18px; font-weight: 500; }
+  figcaption .n { color: var(--cyan); margin-right: 8px; }
+  .links { display: flex; gap: 14px; }
+  .links a { color: rgba(255,255,255,.65); text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,.35); }
+  .links a:hover { color: var(--amber); border-color: var(--amber); }
+  .missing { position: absolute; inset: 0; display: grid; place-items: center; color: rgba(255,255,255,.5); font-size: 13px; text-align: center; padding: 16px; }
+  footer { margin-top: 48px; color: rgba(255,255,255,.45); font-size: 12px; }
+  footer code { color: var(--amber); }
+  .controls { display: flex; flex-wrap: wrap; gap: 12px; }
+  .play { background: transparent; color: var(--amber); border: 1px solid rgba(255,179,0,.6); border-radius: 999px; font: inherit; font-size: 13px; letter-spacing: .1em; padding: 10px 18px; cursor: pointer; }
+  .play:hover { background: var(--amber); color: var(--bg); }
+  .lb { position: fixed; inset: 0; z-index: 100; background: rgba(2,3,7,.94); display: grid; place-items: center; align-content: center; cursor: zoom-out; }
+  .lb[hidden] { display: none; }
+  .lb img { display: block; max-width: 96vw; max-height: 90vh; }
+  .lb p { color: rgba(255,255,255,.6); font-size: 12px; text-align: center; margin: 10px 0 0; }
+  :root:fullscreen .lb { background: var(--bg); }
+  :root:fullscreen .lb img { max-width: 100vw; max-height: 100vh; }
+  :root:fullscreen .lb p { display: none; }
+  :root:fullscreen .lb.idle { cursor: none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <p class="kicker">HACKNHEAL // AI × BIO</p>
+      <h1>Poster gallery</h1>
+      <p class="sub">7 posters · 3840×2160 · seed 42 · click a poster to view it at 4K</p>
+    </div>
+    <div class="controls">
+    <button type="button" class="play" id="play">▶ SLIDESHOW</button>
+    <div class="toggle" role="group" aria-label="Variant">
+      <button type="button" data-v="full" aria-pressed="true">FULL</button>
+      <button type="button" data-v="bg" aria-pressed="false">BACKGROUND</button>
+    </div>
+    </div>
+  </header>
+  <section class="grid" id="grid"></section>
+  <footer>Regenerate with <code>npm run export</code> (or <code>npm run export -- --seed 7</code> for a variant set). Files live in <code>out/png</code> and <code>out/svg</code>.</footer>
+</main>
+<div id="lb" class="lb" role="dialog" aria-modal="true" aria-label="Poster viewer" hidden><img alt=""><p>← → poster · F fullscreen · B full/bg · Esc close</p></div>
+<script>
+  const SEED = '42';
+  const posters = [
+    ['01-mlp', 'Deep Neural Network'],
+    ['02-transformer', 'Transformer'],
+    ['03-embeddings', 'Embedding Space'],
+    ['04-unet', 'U-Net'],
+    ['05-self-attention', 'Self-Attention'],
+    ['06-loss-landscape', 'Gradient Descent'],
+    ['07-diffusion', 'Diffusion Model'],
+  ];
+  const grid = document.getElementById('grid');
+  const lb = document.getElementById('lb');
+  function render(v) {
+    grid.innerHTML = '';
+    for (const [id, title] of posters) {
+      const base = `${id}--${v}--seed${SEED}`;
+      const fig = document.createElement('figure');
+      fig.innerHTML = `
+        <button class="frame" type="button" aria-label="View ${title} at 4K">
+          <img loading="lazy" src="out/png/${base}--1920x1080.png" alt="${title} poster, ${v} variant">
+        </button>
+        <figcaption>
+          <span><span class="n">${id.slice(0, 2)}</span><b>${title}</b></span>
+          <span class="links">
+            <a href="out/png/${base}--3840x2160.png">4K</a>
+            <a href="out/png/${base}--1920x1080.png">1080p</a>
+            <a href="out/svg/${base}.svg">SVG</a>
+            <a href="posters/${id}.html?seed=${SEED}&variant=${v}">live</a>
+          </span>
+        </figcaption>`;
+      const img = fig.querySelector('img');
+      img.addEventListener('error', () => {
+        img.remove();
+        fig.querySelector('.frame').insertAdjacentHTML('beforeend', '<span class="missing">not exported yet — run npm run export</span>');
+      });
+      fig.querySelector('.frame').addEventListener('click', () => open(posters.findIndex((q) => q[0] === id)));
+      grid.appendChild(fig);
+    }
+  }
+  // lightbox / slideshow: always shows the 4K PNG of the current variant
+  let cur = 0;
+  const show = () => {
+    const [id, title] = posters[cur];
+    const img = lb.querySelector('img');
+    img.src = `out/png/${id}--${v}--seed${SEED}--3840x2160.png`;
+    img.alt = `${title}, ${v} variant, 4K`;
+  };
+  function open(i, fullscreen = false) {
+    cur = i; show();
+    lb.hidden = false;
+    document.body.style.overflow = 'hidden';
+    if (fullscreen) document.documentElement.requestFullscreen?.().catch(() => {});
+  }
+  const toggleFs = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen?.().catch(() => {}));
+  function closeLb() {
+    lb.hidden = true;
+    document.body.style.overflow = '';
+    if (document.fullscreenElement) document.exitFullscreen();
+  }
+  lb.addEventListener('click', () => { if (!document.fullscreenElement) closeLb(); });
+  lb.addEventListener('dblclick', toggleFs);
+  document.addEventListener('keydown', (e) => {
+    if (lb.hidden || e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key;
+    if (k === 'Escape' && !document.fullscreenElement) { closeLb(); return; }
+    if (k === 'ArrowRight' || k === ' ' || k === 'PageDown') { e.preventDefault(); cur = (cur + 1) % posters.length; show(); }
+    else if (k === 'ArrowLeft' || k === 'PageUp') { e.preventDefault(); cur = (cur - 1 + posters.length) % posters.length; show(); }
+    else if (k === 'f' || k === 'F') { e.preventDefault(); toggleFs(); }
+    else if (k === 'b' || k === 'B') { setVariant(v === 'bg' ? 'full' : 'bg'); show(); }
+  });
+  let idle;
+  lb.addEventListener('mousemove', () => {
+    lb.classList.remove('idle'); clearTimeout(idle);
+    idle = setTimeout(() => lb.classList.add('idle'), 2000);
+  });
+  document.getElementById('play').addEventListener('click', () => open(0, true));
+  let v = 'full';
+  try { v = localStorage.getItem('hnh-variant') || 'full'; } catch (e) {}
+  document.querySelectorAll('.toggle button').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.v === v));
+    b.addEventListener('click', () => setVariant(b.dataset.v));
+  });
+  function setVariant(nv) {
+    v = nv;
+    document.querySelectorAll('.toggle button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.v === v)));
+    try { localStorage.setItem('hnh-variant', v); } catch (e) {}
+    render(v);
+  }
+  render(v);
+</script>
+</body>
+</html>

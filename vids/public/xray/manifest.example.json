@@ -1,0 +1,19 @@
+{
+  "_comment": "Copy to manifest.json and put the images next to it. heat = Grad-CAM blobs [x, y, radius, weight] in image coordinates (0..1, y down; patient right is on the image LEFT).",
+  "cases": [
+    {
+      "id": "CXR-0001",
+      "image": "pneumonia_01.png",
+      "label": "Pneumonia – RLL",
+      "finding": "Consolidation",
+      "prob": 0.93,
+      "region": "RLL",
+      "heat": [[0.30, 0.63, 0.11, 1.0], [0.36, 0.55, 0.06, 0.4]],
+      "similar": [
+        { "image": "pneumonia_07.png", "label": "Pneumonia – RLL", "score": 0.94, "id": "CXR-0107" },
+        { "image": "normal_03.png", "label": "Normal", "score": 0.91, "id": "CXR-0203" },
+        { "image": "effusion_02.png", "label": "Effusion", "score": 0.88, "id": "CXR-0302" }
+      ]
+    }
+  ]
+}
